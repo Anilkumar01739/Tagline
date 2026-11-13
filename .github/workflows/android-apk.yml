@@ -1,0 +1,173 @@
+name: Android APK
+
+# Linux CI for the shipping arm64 APK: build, size check (≤100 MiB), artifact.
+# Download: Actions run → Artifacts → TagLine-android-arm64.
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "scripts/readme/**"
+  pull_request:
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - "scripts/readme/**"
+  workflow_dispatch:
+
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  GGML_NATIVE: "OFF"
+
+jobs:
+  apk:
+    name: Build arm64 APK (Linux)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Read the version
+        id: version
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' src/Cargo.toml | head -1)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Building TagLine $version (aarch64-linux-android)"
+
+      - name: The pinned toolchain
+        id: toolchain
+        run: echo "channel=$(sed -n 's/^channel = "\(.*\)"/\1/p' src/rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master (v1), 2026-10-09
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+          targets: aarch64-linux-android
+
+      - uses: taiki-e/cache-cargo-install-action@9ee83daaa7b96a6fab930949ecf1122bba04a389 # v3.0.8
+        with:
+          tool: cargo-apk
+
+      - name: System libraries
+        run: sudo apt-get update && sudo apt-get install -y cmake libclang-dev
+
+      - name: FFmpeg for Android (cached)
+        id: ffmpeg
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: src/vendor/ffmpeg/aarch64-linux-android
+          key: ffmpeg-aarch64-linux-android-${{ hashFiles('src/scripts/ffmpeg-mobile.sh') }}
+
+      - name: FFmpeg for Android
+        if: steps.ffmpeg.outputs.cache-hit != 'true'
+        run: src/scripts/ffmpeg-mobile.sh aarch64-linux-android
+
+      - name: FFmpeg for Android (save)
+        if: steps.ffmpeg.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: src/vendor/ffmpeg/aarch64-linux-android
+          key: ${{ steps.ffmpeg.outputs.cache-primary-key }}
+
+      - name: Android runtime libraries
+        run: src/scripts/android-libs.sh aarch64-linux-android
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src
+          key: aarch64-linux-android-release
+
+      - name: A key for the run
+        run: |
+          set -euo pipefail
+          keystore=$RUNNER_TEMP/run.keystore
+          keytool -genkeypair -v -keystore "$keystore" -storepass concat -keypass concat \
+            -alias concat -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=TagLine, O=TagLine" >/dev/null 2>&1
+          echo "CARGO_APK_RELEASE_KEYSTORE=$keystore" >> "$GITHUB_ENV"
+          echo "CARGO_APK_RELEASE_KEYSTORE_PASSWORD=concat" >> "$GITHUB_ENV"
+
+      # Same as mobile.yml: `release` (thin LTO). `profile app` (fat LTO) OOMs or
+      # fails linking on the Linux runner when cross-compiling the full graph.
+      - name: Build the APK
+        working-directory: src
+        run: |
+          set -o pipefail
+          eval "$(scripts/mobile-env.sh aarch64-linux-android)"
+          cargo apk build --release -p tagline-android --target aarch64-linux-android 2>&1 | tee build.log
+
+      - name: Locate APK
+        id: apk
+        run: |
+          set -euo pipefail
+          apk=$(find src/target -path '*/apk/TagLine.apk' -printf '%T@ %p\n' 2>/dev/null | sort -n | tail -1 | cut -d' ' -f2-)
+          if [ -z "$apk" ]; then
+            apk=$(find src/target -name 'TagLine.apk' | head -1)
+          fi
+          [ -n "$apk" ] || { echo "::error::no TagLine.apk under src/target"; exit 1; }
+          echo "path=$apk" >> "$GITHUB_OUTPUT"
+          ls -lh "$apk"
+
+      - name: Every library is aligned for 16 KB pages
+        run: python3 scripts/ci/check-16k-pages.py "${{ steps.apk.outputs.path }}"
+
+      - name: APK size budget (100 MiB)
+        id: size
+        run: |
+          set -euo pipefail
+          apk="${{ steps.apk.outputs.path }}"
+          python3 scripts/ci/check-apk-size.py "$apk" --max-mib 100
+          bytes=$(stat -c%s "$apk")
+          mib=$(python3 -c "print(f'{$bytes/1024/1024:.2f}')")
+          echo "bytes=$bytes" >> "$GITHUB_OUTPUT"
+          echo "mib=$mib" >> "$GITHUB_OUTPUT"
+
+      - name: Build log to the summary (failure only)
+        if: failure()
+        run: |
+          python3 scripts/ci/annotate.py src/build.log || true
+          if [ -f src/build.log ]; then
+            {
+              echo "### Build failed"
+              echo '```'
+              tail -n 150 src/build.log
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Stage
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p stage
+          cp "${{ steps.apk.outputs.path }}" "stage/TagLine-$VERSION-android-arm64.apk"
+          ls -lh stage
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: TagLine-android-arm64
+          path: stage/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: APK download hint
+        run: |
+          {
+            echo "## TagLine Android APK"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| **Version** | ${{ steps.version.outputs.version }} |"
+            echo "| **ABI** | arm64-v8a |"
+            echo "| **Size** | ${{ steps.size.outputs.mib }} MiB |"
+            echo "| **Install** | Download **TagLine-android-arm64** under **Artifacts** on this run |"
+            echo ""
+            echo "Built on \`ubuntu-24.04\` with \`--release\` (same as upstream phone CI)."
+          } >> "$GITHUB_STEP_SUMMARY"

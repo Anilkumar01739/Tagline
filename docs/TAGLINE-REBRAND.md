@@ -71,7 +71,7 @@ Grep scope: tracked tree, excluding `target/`, `vendor/`, `.git/`, local build l
 | `*-Concat.otf` font filenames | Embed paths only |
 | `tagline.lock`, MCP tool `tagline_version` | On-disk / API identifiers |
 | `scripts/rebrand-*.py` | Migration tooling |
-| `.claude/skills/run-concat/SKILL.md` | Dev skill folder name; path example uses `TagLine` |
+| `.claude/skills/run-tagline-android/SKILL.md` | Claude skill: build/install Android APK |
 | `ffmpeg-mobile.log`, `android-libs.log` | Local build artifacts (gitignored ideally) |
 
 ### Locales
