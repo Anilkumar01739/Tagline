@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish = false
-description = "TagLine on Android: the activity that hosts the editor window."
+description = "TagLine on Android: the activity that hosts the editor window." # ci-android APK build
 
 # An Android app is a shared object the activity loads, not a program.
 [lib]

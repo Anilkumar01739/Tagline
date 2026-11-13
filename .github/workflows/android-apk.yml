@@ -7,20 +7,14 @@ name: Android APK
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - "**.md"
-      - "docs/**"
-      - "scripts/readme/**"
   pull_request:
-    paths-ignore:
-      - "**.md"
-      - "docs/**"
-      - "scripts/readme/**"
+    branches: [main]
   workflow_dispatch:
 
+# Stale runs sat in queue (cancel-in-progress: false); only the latest push runs.
 concurrency:
   group: android-apk-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -33,7 +27,13 @@ jobs:
     timeout-minutes: 360
     permissions:
       contents: read
+      actions: read
     steps:
+      - name: Workflow started
+        run: |
+          echo "event=${{ github.event_name }} ref=${{ github.ref }} sha=${{ github.sha }}"
+          df -h / || true
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - uses: jlumbroso/free-disk-space@3f13feab2962a87273d379ebc36ea159527e6cc9 # v1.3.2
