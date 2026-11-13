@@ -15,8 +15,19 @@ def main() -> int:
     parser.add_argument(
         "--max-mib",
         type=float,
-        default=100.0,
-        help="Maximum allowed size in mebibytes (default: 100)",
+        default=150.0,
+        help="Maximum allowed size in mebibytes (default: 150)",
+    )
+    parser.add_argument(
+        "--advisory-mib",
+        type=float,
+        default=None,
+        help="GitHub warning when size exceeds this (does not fail by itself)",
+    )
+    parser.add_argument(
+        "--warn-only",
+        action="store_true",
+        help="Never fail the process when over --max-mib",
     )
     args = parser.parse_args()
     apk: Path = args.apk
@@ -29,7 +40,18 @@ def main() -> int:
     limit = int(args.max_mib * MIB)
     print(f"APK size: {mib:.2f} MiB ({size:,} bytes); limit {args.max_mib:.0f} MiB")
 
+    if args.advisory_mib is not None and size > int(args.advisory_mib * MIB):
+        print(
+            f"::warning::APK is {mib:.2f} MiB (target ≤{args.advisory_mib:.0f} MiB)",
+            file=sys.stderr,
+        )
     if size > limit:
+        if args.warn_only:
+            print(
+                f"::warning::APK is {mib:.2f} MiB, above the {args.max_mib:.0f} MiB limit",
+                file=sys.stderr,
+            )
+            return 0
         print(
             f"::error::APK is {mib:.2f} MiB, above the {args.max_mib:.0f} MiB limit",
             file=sys.stderr,

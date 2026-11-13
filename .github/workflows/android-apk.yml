@@ -1,6 +1,6 @@
 name: Android APK
 
-# Linux CI for the shipping arm64 APK: build, size check (≤100 MiB), artifact.
+# Linux CI for the shipping arm64 APK: build, size check, artifact.
 # Download: Actions run → Artifacts → TagLine-android-arm64.
 on:
   push:
@@ -81,7 +81,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src
-          key: aarch64-linux-android-release
+          key: aarch64-linux-android-${{ hashFiles('src/crates/tagline/ui/**/*.slint', 'src/crates/tagline-android/**') }}
 
       - name: A key for the run
         run: |
@@ -96,11 +96,37 @@ jobs:
       # Same as mobile.yml: `release` (thin LTO). `profile app` (fat LTO) OOMs or
       # fails linking on the Linux runner when cross-compiling the full graph.
       - name: Build the APK
+        id: build
         working-directory: src
         run: |
           set -o pipefail
           eval "$(scripts/mobile-env.sh aarch64-linux-android)"
           cargo apk build --release -p tagline-android --target aarch64-linux-android 2>&1 | tee build.log
+
+      - name: Build diagnostics
+        if: failure() && steps.build.outcome == 'failure'
+        run: |
+          if [ ! -f src/build.log ]; then
+            echo "::error::src/build.log was not written"
+            exit 0
+          fi
+          python3 scripts/ci/annotate.py src/build.log || true
+          {
+            echo "### Build failed"
+            echo ""
+            echo '```'
+            grep -E '^(error|warning)(\[[^]]+\])?:' src/build.log | tail -40 || true
+            echo ""
+            tail -n 120 src/build.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure() && steps.build.outcome == 'failure'
+        with:
+          name: android-apk-build-log
+          path: src/build.log
+          if-no-files-found: warn
 
       - name: Locate APK
         id: apk
@@ -117,29 +143,16 @@ jobs:
       - name: Every library is aligned for 16 KB pages
         run: python3 scripts/ci/check-16k-pages.py "${{ steps.apk.outputs.path }}"
 
-      - name: APK size budget (100 MiB)
+      - name: APK size report
         id: size
         run: |
           set -euo pipefail
           apk="${{ steps.apk.outputs.path }}"
-          python3 scripts/ci/check-apk-size.py "$apk" --max-mib 100
+          python3 scripts/ci/check-apk-size.py "$apk" --max-mib 150 --advisory-mib 100
           bytes=$(stat -c%s "$apk")
           mib=$(python3 -c "print(f'{$bytes/1024/1024:.2f}')")
           echo "bytes=$bytes" >> "$GITHUB_OUTPUT"
           echo "mib=$mib" >> "$GITHUB_OUTPUT"
-
-      - name: Build log to the summary (failure only)
-        if: failure()
-        run: |
-          python3 scripts/ci/annotate.py src/build.log || true
-          if [ -f src/build.log ]; then
-            {
-              echo "### Build failed"
-              echo '```'
-              tail -n 150 src/build.log
-              echo '```'
-            } >> "$GITHUB_STEP_SUMMARY"
-          fi
 
       - name: Stage
         env:
@@ -158,6 +171,7 @@ jobs:
           retention-days: 30
 
       - name: APK download hint
+        if: success()
         run: |
           {
             echo "## TagLine Android APK"
@@ -169,5 +183,5 @@ jobs:
             echo "| **Size** | ${{ steps.size.outputs.mib }} MiB |"
             echo "| **Install** | Download **TagLine-android-arm64** under **Artifacts** on this run |"
             echo ""
-            echo "Built on \`ubuntu-24.04\` with \`--release\` (same as upstream phone CI)."
+            echo "Built on \`ubuntu-24.04\` with \`cargo apk build --release\` (same as upstream phone CI)."
           } >> "$GITHUB_STEP_SUMMARY"

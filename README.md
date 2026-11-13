@@ -25,7 +25,7 @@ Maintained by [**Anilkumar01739**](https://github.com/Anilkumar01739). Package n
 
 1. Open [**Android APK**](https://github.com/Anilkumar01739/Tagline/actions/workflows/android-apk.yml)  
 2. Select the latest successful run on `main`  
-3. Download the **`TagLine-android-arm64`** artifact  
+3. Download the **`TagLine-android-arm64`** artifact (release build; CI warns above **100 MiB**, fails only above **150 MiB**)  
 4. Install on a **64-bit ARM** device:
 
    ```bash
