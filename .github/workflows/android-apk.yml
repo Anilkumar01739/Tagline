@@ -36,6 +36,18 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # Android + Rust `target/` needs tens of GiB; a 12 GiB swap file made ENOSPC worse.
+      - name: Free disk space on the runner
+        run: |
+          set -euo pipefail
+          echo "Before:"
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/graalvm /usr/local/.ghcup
+          sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo apt-get clean
+          echo "After:"
+          df -h /
+
       - name: Read the version
         id: version
         run: |
@@ -59,18 +71,6 @@ jobs:
       - name: System libraries
         run: sudo apt-get update && sudo apt-get install -y cmake libclang-dev
 
-      - name: Swap for linker RAM
-        run: |
-          set -euo pipefail
-          if [ ! -f /swapfile ]; then
-            sudo fallocate -l 12G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=12288 status=none
-            sudo chmod 600 /swapfile
-            sudo mkswap /swapfile
-          fi
-          sudo swapon /swapfile
-          swapon --show
-          free -h
-
       - name: FFmpeg for Android (cached)
         id: ffmpeg
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -81,6 +81,13 @@ jobs:
       - name: FFmpeg for Android
         if: steps.ffmpeg.outputs.cache-hit != 'true'
         run: src/scripts/ffmpeg-mobile.sh aarch64-linux-android
+
+      # FFmpeg sources and object files are not needed once static libs are in aarch64-linux-android/lib.
+      - name: Trim FFmpeg build trees
+        if: steps.ffmpeg.outputs.cache-hit != 'true'
+        run: |
+          rm -rf src/vendor/ffmpeg/src
+          df -h /
 
       - name: FFmpeg for Android (save)
         if: steps.ffmpeg.outputs.cache-hit != 'true'
@@ -120,11 +127,12 @@ jobs:
         env:
           CARGO_BUILD_JOBS: "1"
           CMAKE_BUILD_PARALLEL_LEVEL: "1"
+          CARGO_INCREMENTAL: "0"
           CARGO_PROFILE_CI_ANDROID_LTO: "false"
         working-directory: src
         run: |
           set -o pipefail
-          free -h
+          df -h /
           eval "$(scripts/mobile-env.sh aarch64-linux-android)"
           cargo apk build --profile ci-android -p tagline-android --target aarch64-linux-android 2>&1 | tee build.log
 

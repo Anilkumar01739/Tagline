@@ -70,6 +70,7 @@ inherits = "release"
 lto = false
 codegen-units = 256
 debug = 0
+incremental = false
 
 # For trying a change in the window: `cargo dev` (an alias for
 # `cargo run --bin tagline --profile quick`, see .cargo/config.toml).
