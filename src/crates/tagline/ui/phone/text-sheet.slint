@@ -1,0 +1,116 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer Abdullah and TagLine contributors
+
+import { I18n } from "../i18n.slint";
+import { Theme } from "../theme/theme.slint";
+import { Glyph } from "../icons.slint";
+import { Editor } from "../editor.slint";
+import { IconButton } from "../primitives/panel.slint";
+import { TextPanel } from "../inspector/text-panel.slint";
+import { KeyCluster } from "../inspector/controls.slint";
+import {
+    ClipField, ClipTextField, Keyframes, SelectedClipData,
+} from "../timeline/model.slint";
+import { KeyEditor } from "../workspace/keyframes-pane.slint";
+import { RoundButton } from "controls.slint";
+
+/// Title editing on the phone: the same panel and callbacks as the desk, with
+/// a thumb row for undo, redo and key stepping above the tabbed body.
+export component PhoneTextPanel inherits VerticalLayout {
+    in property <SelectedClipData> selected;
+    in property <[string]> families: ["Hanken Grotesk"];
+
+    callback set(field: ClipField, value: float);
+    callback set-text(field: ClipTextField, value: string);
+    callback set-words(text: string, caret: int);
+    callback select-words(anchor: int, cursor: int);
+    callback reset-words();
+    callback set-colour(field: ClipTextField, value: color);
+    callback commit();
+    callback import-font();
+    callback set-default();
+
+  spacing: 0px;
+
+  Rectangle {
+    height: 52px;
+
+    Rectangle {
+      x: 0;
+      y: parent.height - 1px;
+      width: parent.width;
+      height: 1px;
+      background: Theme.line;
+    }
+
+    HorizontalLayout {
+      padding-left: 12px;
+      padding-right: 12px;
+      spacing: 10px;
+
+      VerticalLayout {
+        alignment: center;
+        RoundButton {
+          glyph: Glyph.undo;
+          label: I18n.t("phone.undo");
+          enabled: Editor.can-undo;
+          size: 40px;
+          icon-size: 17px;
+          clicked => { Editor.undo(); }
+        }
+      }
+      VerticalLayout {
+        alignment: center;
+        RoundButton {
+          glyph: Glyph.redo;
+          label: I18n.t("phone.redo");
+          enabled: Editor.can-redo;
+          size: 40px;
+          icon-size: 17px;
+          clicked => { Editor.redo(); }
+        }
+      }
+
+      Rectangle { horizontal-stretch: 1; }
+
+      VerticalLayout {
+        alignment: center;
+        HorizontalLayout {
+          spacing: 6px;
+
+          IconButton {
+            glyph: Glyph.chevron-left;
+            label: I18n.t("keyframesPane.previousKey");
+            enabled: Keyframes.available;
+            clicked => { KeyEditor.step-all(-1); }
+          }
+          KeyCluster {
+            field: ClipField.offset-x;
+            state: Keyframes.row(ClipField.offset-x);
+          }
+          IconButton {
+            glyph: Glyph.chevron-right;
+            label: I18n.t("keyframesPane.nextKey");
+            enabled: Keyframes.available;
+            clicked => { KeyEditor.step-all(1); }
+          }
+        }
+      }
+    }
+  }
+
+  TextPanel {
+    phone: true;
+    selected: root.selected;
+    families: root.families;
+    set(field, value) => { root.set(field, value); }
+    set-text(field, value) => { root.set-text(field, value); }
+    set-words(text, caret) => { root.set-words(text, caret); }
+    select-words(anchor, cursor) => { root.select-words(anchor, cursor); }
+    reset-words => { root.reset-words(); }
+    set-colour(field, value) => { root.set-colour(field, value); }
+    commit => { root.commit(); }
+    import-font => { root.import-font(); }
+    set-default => { root.set-default(); }
+  }
+}

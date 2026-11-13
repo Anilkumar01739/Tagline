@@ -1,0 +1,157 @@
+// SPDX-License-Identifier: AGPL-3.0-or-later
+// SPDX-FileCopyrightText: 2026 Jareer Abdullah and TagLine contributors
+
+import { I18n } from "../i18n.slint";
+import { Theme } from "../theme/theme.slint";
+import { Param, Subhead } from "../inspector/controls.slint";
+import { ColorWheel, CurveEditor, WheelData, CurveData } from "../inspector/grading.slint";
+import { AppliedParamData } from "../inspector/clip-inspector.slint";
+import { ClipField } from "../timeline/model.slint";
+
+/// Colour grading on the phone: tabbed like other sheets, without the desk's
+/// section chrome. The same adjust package and callbacks as AdjustPanel.
+export component PhoneAdjustPanel inherits VerticalLayout {
+    in property <[AppliedParamData]> params;
+    in property <[WheelData]> wheels;
+    in property <[CurveData]> curves;
+
+    callback set(key: string, value: float);
+    callback curve-point(key: string, point: int, x: float, y: float);
+    callback curve-remove(key: string, point: int);
+    callback commit();
+
+    property <int> page;
+
+    padding: 12px;
+    spacing: 14px;
+
+    Text {
+        text: I18n.t("phone.adjustHint");
+        color: Theme.fg-dim;
+        font-size: Theme.fs;
+        wrap: word-wrap;
+    }
+
+    HorizontalLayout {
+        spacing: 8px;
+        alignment: start;
+
+        for tab[index] in [
+            I18n.t("phone.adjustSliders"),
+            I18n.t("phone.adjustWheels"),
+            I18n.t("phone.adjustCurves"),
+        ]: Rectangle {
+            visible: index == 0 || (index == 1 && root.wheels.length > 0)
+                || (index == 2 && root.curves.length > 0);
+            height: 36px;
+            min-width: tab-chip.preferred-width + 24px;
+            border-radius: 18px;
+            background: root.page == index ? Theme.accent : Theme.field;
+            border-width: root.page == index ? 0px : 1px;
+            border-color: Theme.line;
+
+            tab-chip := Text {
+                x: 12px;
+                y: (parent.height - self.height) / 2;
+                text: tab;
+                color: root.page == index ? Theme.on-accent : Theme.fg-muted;
+                font-size: Theme.fs;
+                font-weight: Theme.weight-title;
+            }
+
+            TouchArea { clicked => { root.page = index; } }
+        }
+    }
+
+    if root.page == 0: VerticalLayout {
+        spacing: 10px;
+
+        for p[i] in root.params: VerticalLayout {
+            spacing: 8px;
+
+            if p.group != "" && (i == 0 || root.params[i - 1].group != p.group): Subhead {
+                title: p.group;
+            }
+
+            Rectangle {
+                min-height: 52px;
+                background: Theme.field;
+                border-radius: Theme.r;
+                border-width: 1px;
+                border-color: Theme.line;
+
+                VerticalLayout {
+                    alignment: center;
+                    width: parent.width;
+
+                    Param {
+                    padding-left: 12px;
+                    padding-right: 12px;
+                    unit: p.unit;
+                    label: p.label;
+                    value: p.value;
+                    minimum: p.min;
+                    maximum: p.max;
+                    step: p.step;
+                    default-value: p.default-value;
+                    fmt: p.fmt;
+                    keyable: p.keyable;
+                    key-name: p.key;
+                    key-state: {
+                        field: ClipField.scale,
+                        keyed: p.keyed,
+                        here: p.here,
+                        prev: p.prev,
+                        next: p.next,
+                    };
+                    changed(v) => { root.set(p.key, v); root.commit(); }
+                    }
+                }
+            }
+        }
+    }
+
+    if root.page == 1 && root.wheels.length > 0: VerticalLayout {
+        spacing: 12px;
+
+        Subhead { title: root.wheels[0].group; }
+
+        HorizontalLayout {
+            spacing: 12px;
+            alignment: center;
+
+            for w in root.wheels: ColorWheel {
+                min-width: 96px;
+                horizontal-stretch: 1;
+                data: w;
+                moved(x, y) => {
+                    root.set(w.key + ".x", x);
+                    root.set(w.key + ".y", y);
+                    root.commit();
+                }
+                master-changed(v) => {
+                    root.set(w.key + ".m", v);
+                    root.commit();
+                }
+            }
+        }
+    }
+
+    if root.page == 2 && root.curves.length > 0: VerticalLayout {
+        spacing: 12px;
+
+        Subhead { title: root.curves[0].group; }
+
+        CurveEditor {
+            curves: root.curves;
+            point(key, point, x, y) => {
+                root.curve-point(key, point, x, y);
+                root.commit();
+            }
+            remove(key, point) => {
+                root.curve-remove(key, point);
+                root.commit();
+            }
+        }
+    }
+}
