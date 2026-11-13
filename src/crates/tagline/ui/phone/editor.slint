@@ -1054,10 +1054,11 @@ export component PhoneEditor inherits Rectangle {
                 clicked => { root.more-open = false; }
             }
             for item[index] in Editor.menu-items: Rectangle {
-                width: item.kind == MenuRow.action ? menu-tool.preferred-width : 0px;
+                // ToolItem is 68px wide (phone/controls.slint); cannot read its id here.
+                width: item.kind == MenuRow.action ? 68px : 0px;
                 height: parent.height;
 
-                if item.kind == MenuRow.action: menu-tool := ToolItem {
+                if item.kind == MenuRow.action: ToolItem {
                     glyph: item.glyph;
                     label: item.label;
                     enabled: item.enabled;
