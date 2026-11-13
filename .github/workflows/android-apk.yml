@@ -2,6 +2,7 @@ name: Android APK
 
 # Linux CI for the shipping arm64 APK: build, size check, artifact.
 # Download: Actions run → Artifacts → TagLine-android-arm64.
+# workflow_dispatch or push to main (non-doc paths) starts a run.
 on:
   push:
     branches: [main]
