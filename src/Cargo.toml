@@ -72,6 +72,12 @@ codegen-units = 256
 debug = 0
 incremental = false
 
+# Slint's generated UI is one huge crate; lower opt-level here cuts peak link
+# RAM on 7 GiB GitHub runners (SIGTERM → exit 143) without touching dependencies.
+[profile.ci-android.package.tagline]
+opt-level = 1
+codegen-units = 256
+
 # For trying a change in the window: `cargo dev` (an alias for
 # `cargo run --bin tagline --profile quick`, see .cargo/config.toml).
 # Optimised enough that video plays as it would in release, without the
