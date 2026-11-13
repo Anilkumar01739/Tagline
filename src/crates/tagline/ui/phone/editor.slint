@@ -1053,14 +1053,19 @@ export component PhoneEditor inherits Rectangle {
                 label: I18n.t("phone.back");
                 clicked => { root.more-open = false; }
             }
-            for item[index] in Editor.menu-items: if item.kind == MenuRow.action: menu-tool := ToolItem {
-                glyph: item.glyph;
-                label: item.label;
-                enabled: item.enabled;
-                current: item.checkable && item.checked;
-                clicked => {
-                    Editor.menu-selected(item.id);
-                    root.more-open = false;
+            for item[index] in Editor.menu-items: Rectangle {
+                width: item.kind == MenuRow.action ? menu-tool.preferred-width : 0px;
+                height: parent.height;
+
+                if item.kind == MenuRow.action: menu-tool := ToolItem {
+                    glyph: item.glyph;
+                    label: item.label;
+                    enabled: item.enabled;
+                    current: item.checkable && item.checked;
+                    clicked => {
+                        Editor.menu-selected(item.id);
+                        root.more-open = false;
+                    }
                 }
             }
         }

@@ -1330,37 +1330,6 @@ component LearnCard inherits Pressable {
     }
 }
 
-// A word that goes somewhere: the version line's release notes.
-component TextLink inherits Pressable {
-    in property <string> text;
-
-    label: root.text;
-    radius: Theme.r-xs;
-    width: link-text.preferred-width + 14px;
-    height: 22px;
-
-    HorizontalLayout {
-        alignment: start;
-        spacing: 3px;
-
-        link-text := Text {
-            text: root.text;
-            color: root.lit ? Theme.fg : Theme.fg-muted;
-            font-size: Theme.fs-sm;
-            vertical-alignment: center;
-        }
-
-        VerticalLayout {
-            alignment: center;
-            Icon {
-                glyph: Glyph.arrow-up-right;
-                size: 11px;
-                tint: root.lit ? Theme.fg : Theme.fg-dim;
-            }
-        }
-    }
-}
-
 // The section headings: a title, and room at the end of its row for what
 // works on the section - the search and the sort.
 component SectionHead inherits HorizontalLayout {
