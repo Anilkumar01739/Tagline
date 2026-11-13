@@ -30,7 +30,7 @@ use std::process::Command;
 use std::sync::OnceLock;
 use std::sync::atomic::AtomicBool;
 
-use crate::brand::{GITHUB_OWNER_REPO, RELEASES_API_URL, RELEASE_FILE_PREFIX};
+use crate::brand::{GITHUB_OWNER_REPO, RELEASES_API_URL};
 use crate::dirs::AppDirs;
 use crate::models;
 

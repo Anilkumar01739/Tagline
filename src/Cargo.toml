@@ -63,6 +63,13 @@ opt-level = 3
 lto = "thin"
 codegen-units = 1
 
+# GitHub Actions Android APK: same optimisations as release without thin LTO,
+# which can exhaust a 7 GiB runner while linking Skia + Slint (SIGTERM, exit 143).
+[profile.ci-android]
+inherits = "release"
+lto = false
+codegen-units = 16
+
 # For trying a change in the window: `cargo dev` (an alias for
 # `cargo run --bin tagline --profile quick`, see .cargo/config.toml).
 # Optimised enough that video plays as it would in release, without the
