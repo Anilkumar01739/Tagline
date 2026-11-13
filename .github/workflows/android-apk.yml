@@ -197,5 +197,5 @@ jobs:
             echo "| **Size** | ${{ steps.size.outputs.mib }} MiB |"
             echo "| **Install** | Download **TagLine-android-arm64** under **Artifacts** on this run |"
             echo ""
-            echo "Built on \`ubuntu-24.04\` with \`cargo apk build --release\` (same as upstream phone CI)."
+            echo "Built on \`ubuntu-24.04\` with \`--profile ci-android\` (release opts without LTO for CI RAM)."
           } >> "$GITHUB_STEP_SUMMARY"
