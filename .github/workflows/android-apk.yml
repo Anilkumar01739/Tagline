@@ -16,7 +16,6 @@ on:
       - "scripts/readme/**"
   workflow_dispatch:
 
-# Queue runs on the same branch; do not cancel in-progress builds (that shows exit 143).
 concurrency:
   group: android-apk-${{ github.ref }}
   cancel-in-progress: false
@@ -29,24 +28,21 @@ jobs:
   apk:
     name: Build arm64 APK (Linux)
     runs-on: ubuntu-24.04
-    # Cold FFmpeg + full Android graph can exceed 2.5 hours on a fresh cache.
     timeout-minutes: 360
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # Android + Rust `target/` needs tens of GiB; a 12 GiB swap file made ENOSPC worse.
-      - name: Free disk space on the runner
-        run: |
-          set -euo pipefail
-          echo "Before:"
-          df -h /
-          sudo rm -rf /usr/share/dotnet /usr/local/graalvm /usr/local/.ghcup
-          sudo rm -rf /opt/hostedtoolcache/CodeQL
-          sudo apt-get clean
-          echo "After:"
-          df -h /
+      - uses: jlumbroso/free-disk-space@5407768710a4d15e6814a8838cd99d56aa9a6aed # v1.3.4
+        with:
+          tool-cache: true
+          android: false
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
 
       - name: Read the version
         id: version
@@ -54,6 +50,7 @@ jobs:
           version=$(sed -n 's/^version = "\(.*\)"/\1/p' src/Cargo.toml | head -1)
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Building TagLine $version (aarch64-linux-android)"
+          df -h /
 
       - name: The pinned toolchain
         id: toolchain
@@ -80,9 +77,9 @@ jobs:
 
       - name: FFmpeg for Android
         if: steps.ffmpeg.outputs.cache-hit != 'true'
+        timeout-minutes: 120
         run: src/scripts/ffmpeg-mobile.sh aarch64-linux-android
 
-      # FFmpeg sources and object files are not needed once static libs are in aarch64-linux-android/lib.
       - name: Trim FFmpeg build trees
         run: |
           rm -rf src/vendor/ffmpeg/src
@@ -98,16 +95,10 @@ jobs:
       - name: Android runtime libraries
         run: src/scripts/android-libs.sh aarch64-linux-android
 
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          workspaces: src
-          key: aarch64-ci-android-v2-${{ hashFiles('src/crates/tagline/ui/**/*.slint', 'src/crates/tagline-android/**', 'src/Cargo.toml') }}
-
-      - name: Prune extra Cargo target profiles
+      # No rust-cache: restored target trees filled the disk (ENOSPC) and OOM-killed links (143).
+      - name: Clean Cargo target
         run: |
-          rm -rf src/target/release src/target/debug \
-            src/target/aarch64-linux-android/release 2>/dev/null || true
-          du -sh src/target 2>/dev/null || true
+          rm -rf src/target
           df -h /
 
       - name: A key for the run
@@ -126,44 +117,50 @@ jobs:
           ver=$(ls -d "$sdk/build-tools"/* 2>/dev/null | sort -V | tail -1 | xargs -n1 basename)
           echo "ANDROID_BUILD_TOOLS_VERSION=${ver:-35.0.0}" >> "$GITHUB_ENV"
 
-      # `ci-android` skips thin LTO (OOM on 7 GiB runners); local/release builds stay `release`.
+      # profile.ci-android: release opts without thin LTO (see src/Cargo.toml).
       - name: Build the APK
         id: build
         timeout-minutes: 300
         env:
           CARGO_BUILD_JOBS: "1"
           CMAKE_BUILD_PARALLEL_LEVEL: "1"
-          CARGO_INCREMENTAL: "0"
-          CARGO_PROFILE_CI_ANDROID_LTO: "false"
         working-directory: src
         run: |
-          set -o pipefail
+          set -euo pipefail
           df -h /
+          free -h || true
           eval "$(scripts/mobile-env.sh aarch64-linux-android)"
-          cargo apk build --profile ci-android -p tagline-android --target aarch64-linux-android 2>&1 | tee build.log
+          (
+            cargo apk build --profile ci-android -p tagline-android --target aarch64-linux-android 2>&1 | tee build.log
+          ) &
+          pid=$!
+          while kill -0 "$pid" 2>/dev/null; do
+            echo "$(date -Iseconds) still building..."
+            sleep 300
+          done
+          wait "$pid"
+          df -h /
 
       - name: Build diagnostics
         if: failure()
         run: |
           echo "Disk at failure:" >> "$GITHUB_STEP_SUMMARY"
           df -h / >> "$GITHUB_STEP_SUMMARY" || true
+          free -h >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
           if [ ! -f src/build.log ]; then
-            echo "::error::src/build.log was not written (exit 143 often means job/step timeout or manual cancel)"
+            echo "::error::build.log missing — step likely SIGTERM (timeout/OOM/cancel), exit 143"
             exit 0
           fi
           python3 scripts/ci/annotate.py src/build.log || true
           {
             echo "### Build failed"
-            echo ""
             echo '```'
-            grep -E '^(error|warning)(\[[^]]+\])?:' src/build.log | tail -40 || true
-            echo ""
-            tail -n 120 src/build.log
+            tail -n 150 src/build.log
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: failure() && steps.build.outcome == 'failure'
+        if: failure()
         with:
           name: android-apk-build-log
           path: src/build.log
@@ -216,13 +213,7 @@ jobs:
         run: |
           {
             echo "## TagLine Android APK"
-            echo ""
-            echo "| | |"
-            echo "|---|---|"
             echo "| **Version** | ${{ steps.version.outputs.version }} |"
-            echo "| **ABI** | arm64-v8a |"
             echo "| **Size** | ${{ steps.size.outputs.mib }} MiB |"
-            echo "| **Install** | Download **TagLine-android-arm64** under **Artifacts** on this run |"
-            echo ""
-            echo "Built on \`ubuntu-24.04\` with \`--profile ci-android\` (release opts without LTO for CI RAM)."
+            echo "Download **TagLine-android-arm64** under Artifacts."
           } >> "$GITHUB_STEP_SUMMARY"
