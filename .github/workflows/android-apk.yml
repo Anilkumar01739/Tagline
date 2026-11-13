@@ -2,6 +2,7 @@ name: Android APK
 
 # Same Android build path as .github/workflows/mobile.yml (arm64 ship APK),
 # without x86_64, emulator smoke, or iOS.
+# Public-repo run: start after Actions billing unblock.
 on:
   push:
     branches: [main]
