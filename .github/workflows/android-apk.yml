@@ -44,6 +44,19 @@ jobs:
           docker-images: true
           swap-storage: false
 
+      - name: Extra runner storage cleanup
+        run: |
+          set -euo pipefail
+          echo "Before extra cleanup:"
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/graalvm /usr/local/.ghcup || true
+          sudo rm -rf /opt/hostedtoolcache/CodeQL || true
+          sudo docker image prune --all --force || true
+          sudo apt-get clean
+          sudo rm -rf /var/lib/apt/lists/*
+          echo "After extra cleanup:"
+          df -h /
+
       - name: Read the version
         id: version
         run: |
@@ -95,7 +108,30 @@ jobs:
       - name: Android runtime libraries
         run: src/scripts/android-libs.sh aarch64-linux-android
 
-      # 12 GiB swap caused ENOSPC; none at all OOM-kills the final link (exit 143).
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src
+          key: aarch64-ci-android-v5-${{ hashFiles('src/crates/tagline/ui/**/*.slint', 'src/crates/tagline-android/**', 'src/Cargo.toml') }}
+
+      - name: Prune unused Cargo profiles
+        run: |
+          rm -rf src/target/release src/target/debug src/target/quick src/target/test 2>/dev/null || true
+          df -h /
+
+      - name: Clean storage before APK build
+        run: |
+          set -euo pipefail
+          rm -rf src/vendor/ffmpeg/src
+          rm -rf src/target/incremental 2>/dev/null || true
+          rm -rf src/target/*/incremental 2>/dev/null || true
+          find src/target -maxdepth 3 -type d -name 'build' -path '*/vendor/*' -exec rm -rf {} + 2>/dev/null || true
+          sudo apt-get clean
+          sudo docker image prune --all --force || true
+          du -sh src/target 2>/dev/null || true
+          df -h /
+          free -h || true
+
+      # 12 GiB swap caused ENOSPC; add 6 GiB only after cache restore and cleanup.
       - name: Swap for linker RAM
         run: |
           set -euo pipefail
@@ -114,16 +150,6 @@ jobs:
           sudo mkswap /swapfile
           sudo swapon /swapfile
           free -h
-          df -h /
-
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          workspaces: src
-          key: aarch64-ci-android-v5-${{ hashFiles('src/crates/tagline/ui/**/*.slint', 'src/crates/tagline-android/**', 'src/Cargo.toml') }}
-
-      - name: Prune unused Cargo profiles
-        run: |
-          rm -rf src/target/release src/target/debug src/target/quick src/target/test 2>/dev/null || true
           df -h /
 
       - name: A key for the run
