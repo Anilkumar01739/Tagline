@@ -60,6 +60,10 @@ on:
         description: Sign the APK with the repository's key; a release does, nothing else may
         type: boolean
         default: false
+      android_only:
+        description: Build only the shipping arm64 Android APK (skip x86_64, smoke, iOS)
+        type: boolean
+        default: false
     secrets:
       ANDROID_KEYSTORE:
         description: Base64 of the release keystore
@@ -73,8 +77,13 @@ on:
         description: The key's own password; the keystore's when unset
         required: false
   pull_request:
-  # Main-branch APK builds use android-apk.yml (Linux, arm64 only, ≤100 MiB).
+  # Main-branch APK via android-apk.yml → workflow_call here with android_only.
   workflow_dispatch:
+    inputs:
+      android_only:
+        description: arm64 APK only (skip x86_64, smoke, iOS)
+        type: boolean
+        default: false
 
 # Keyed by the calling workflow too, so a call from a release never shares
 # a group with a pull request's run. A pull request's run, or a push's, is
@@ -91,23 +100,30 @@ env:
   GGML_NATIVE: "OFF"
 
 jobs:
+  android-planner:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      long_android: ${{ steps.plan.outputs.long_android }}
+    steps:
+      - id: plan
+        run: |
+          if [ "${{ inputs.android_only }}" = "true" ]; then
+            echo 'matrix={"include":[{"target":"aarch64-linux-android","abi":"arm64","ship":true}]}' >> "$GITHUB_OUTPUT"
+            echo "long_android=true" >> "$GITHUB_OUTPUT"
+          else
+            echo 'matrix={"include":[{"target":"aarch64-linux-android","abi":"arm64","ship":true},{"target":"x86_64-linux-android","abi":"x86_64","ship":false}]}' >> "$GITHUB_OUTPUT"
+            echo "long_android=false" >> "$GITHUB_OUTPUT"
+          fi
+
   android:
     name: Android ${{ matrix.abi }}
+    needs: android-planner
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
-    # arm64 is the APK that ships. x86_64 is the same source built for CI's
-    # emulators, which run x86_64 and could not start the arm64 one: the
-    # launch check below installs it, and it never leaves the run.
+    timeout-minutes: ${{ needs.android-planner.outputs.long_android == 'true' && 360 || 90 }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - target: aarch64-linux-android
-            abi: arm64
-            ship: true
-          - target: x86_64-linux-android
-            abi: x86_64
-            ship: false
+      matrix: ${{ fromJSON(needs.android-planner.outputs.matrix) }}
     steps:
       # The ref release.yml names, which is its tag: without one a run
       # started by hand builds main and publishes it under the tag's name.
@@ -184,6 +200,10 @@ jobs:
 
       # The build environment first, then the build under it.
       - name: Build the APK
+        timeout-minutes: ${{ needs.android-planner.outputs.long_android == 'true' && 300 || 75 }}
+        env:
+          CARGO_BUILD_JOBS: ${{ needs.android-planner.outputs.long_android == 'true' && '1' || '' }}
+          CMAKE_BUILD_PARALLEL_LEVEL: ${{ needs.android-planner.outputs.long_android == 'true' && '1' || '' }}
         working-directory: src
         run: |
           set -o pipefail
@@ -281,6 +301,7 @@ jobs:
   # detection crashed before any of the app's code, so it was never
   # tested at all.
   android-smoke:
+    if: ${{ inputs.android_only != true }}
     name: Android smoke (API ${{ matrix.api }})
     needs: android
     runs-on: ubuntu-24.04
@@ -342,6 +363,7 @@ jobs:
           if-no-files-found: warn
 
   ios:
+    if: ${{ inputs.android_only != true }}
     name: iOS arm64
     runs-on: macos-15
     timeout-minutes: 90
@@ -450,6 +472,7 @@ jobs:
   # itself. mobile-env.sh does not know the simulator yet, so the
   # build's environment is written out in the build step below.
   ios-simulator:
+    if: ${{ inputs.android_only != true }}
     name: iOS simulator smoke
     runs-on: macos-15
     timeout-minutes: 90
