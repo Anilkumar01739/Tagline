@@ -16,9 +16,10 @@ on:
       - "scripts/readme/**"
   workflow_dispatch:
 
+# Only the latest run per branch should compile; older ones exit 143 when cancelled.
 concurrency:
   group: android-apk-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -62,11 +63,12 @@ jobs:
         run: |
           set -euo pipefail
           if [ ! -f /swapfile ]; then
-            sudo fallocate -l 8G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=8192 status=progress
+            sudo fallocate -l 12G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=12288 status=none
             sudo chmod 600 /swapfile
             sudo mkswap /swapfile
           fi
-          sudo swapon /swapfile || true
+          sudo swapon /swapfile
+          swapon --show
           free -h
 
       - name: FFmpeg for Android (cached)
@@ -105,15 +107,24 @@ jobs:
           echo "CARGO_APK_RELEASE_KEYSTORE=$keystore" >> "$GITHUB_ENV"
           echo "CARGO_APK_RELEASE_KEYSTORE_PASSWORD=concat" >> "$GITHUB_ENV"
 
+      - name: Android SDK build-tools version
+        run: |
+          sdk=${ANDROID_HOME:-$ANDROID_SDK_ROOT}
+          ver=$(ls -d "$sdk/build-tools"/* 2>/dev/null | sort -V | tail -1 | xargs -n1 basename)
+          echo "ANDROID_BUILD_TOOLS_VERSION=${ver:-35.0.0}" >> "$GITHUB_ENV"
+
       # `ci-android` skips thin LTO (OOM on 7 GiB runners); local/release builds stay `release`.
       - name: Build the APK
         id: build
-        timeout-minutes: 120
+        timeout-minutes: 145
         env:
           CARGO_BUILD_JOBS: "1"
+          CMAKE_BUILD_PARALLEL_LEVEL: "1"
+          CARGO_PROFILE_CI_ANDROID_LTO: "false"
         working-directory: src
         run: |
           set -o pipefail
+          free -h
           eval "$(scripts/mobile-env.sh aarch64-linux-android)"
           cargo apk build --profile ci-android -p tagline-android --target aarch64-linux-android 2>&1 | tee build.log
 
