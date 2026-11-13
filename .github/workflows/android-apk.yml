@@ -16,10 +16,10 @@ on:
       - "scripts/readme/**"
   workflow_dispatch:
 
-# Only the latest run per branch should compile; older ones exit 143 when cancelled.
+# Queue runs on the same branch; do not cancel in-progress builds (that shows exit 143).
 concurrency:
   group: android-apk-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 env:
   CARGO_TERM_COLOR: always
@@ -29,8 +29,8 @@ jobs:
   apk:
     name: Build arm64 APK (Linux)
     runs-on: ubuntu-24.04
-    # Release + thin LTO for the full graph can exceed 90 minutes on a cold cache.
-    timeout-minutes: 150
+    # Cold FFmpeg + full Android graph can exceed 2.5 hours on a fresh cache.
+    timeout-minutes: 360
     permissions:
       contents: read
     steps:
@@ -84,7 +84,6 @@ jobs:
 
       # FFmpeg sources and object files are not needed once static libs are in aarch64-linux-android/lib.
       - name: Trim FFmpeg build trees
-        if: steps.ffmpeg.outputs.cache-hit != 'true'
         run: |
           rm -rf src/vendor/ffmpeg/src
           df -h /
@@ -102,7 +101,14 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src
-          key: aarch64-linux-android-ci-android-${{ hashFiles('src/crates/tagline/ui/**/*.slint', 'src/crates/tagline-android/**', 'src/Cargo.toml') }}
+          key: aarch64-ci-android-v2-${{ hashFiles('src/crates/tagline/ui/**/*.slint', 'src/crates/tagline-android/**', 'src/Cargo.toml') }}
+
+      - name: Prune extra Cargo target profiles
+        run: |
+          rm -rf src/target/release src/target/debug \
+            src/target/aarch64-linux-android/release 2>/dev/null || true
+          du -sh src/target 2>/dev/null || true
+          df -h /
 
       - name: A key for the run
         run: |
@@ -123,7 +129,7 @@ jobs:
       # `ci-android` skips thin LTO (OOM on 7 GiB runners); local/release builds stay `release`.
       - name: Build the APK
         id: build
-        timeout-minutes: 145
+        timeout-minutes: 300
         env:
           CARGO_BUILD_JOBS: "1"
           CMAKE_BUILD_PARALLEL_LEVEL: "1"
@@ -137,10 +143,12 @@ jobs:
           cargo apk build --profile ci-android -p tagline-android --target aarch64-linux-android 2>&1 | tee build.log
 
       - name: Build diagnostics
-        if: failure() && steps.build.outcome == 'failure'
+        if: failure()
         run: |
+          echo "Disk at failure:" >> "$GITHUB_STEP_SUMMARY"
+          df -h / >> "$GITHUB_STEP_SUMMARY" || true
           if [ ! -f src/build.log ]; then
-            echo "::error::src/build.log was not written"
+            echo "::error::src/build.log was not written (exit 143 often means job/step timeout or manual cancel)"
             exit 0
           fi
           python3 scripts/ci/annotate.py src/build.log || true
