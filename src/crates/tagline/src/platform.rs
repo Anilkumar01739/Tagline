@@ -775,8 +775,11 @@ pub type FilePicker = Box<dyn Fn(PickKinds, Box<dyn FnOnce(Vec<PathBuf>) + Send>
 pub enum PickKinds {
     /// Media, by kind; every kind when no list was given.
     Media {
+        /// Video files in the system picker.
         video: bool,
+        /// Audio files in the system picker.
         audio: bool,
+        /// Still images in the system picker.
         image: bool,
     },
     /// Anything else, by extension, lowercase and without the dot.

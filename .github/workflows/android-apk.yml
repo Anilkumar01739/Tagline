@@ -28,7 +28,8 @@ jobs:
   apk:
     name: Build arm64 APK (Linux)
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    # Release + thin LTO for the full graph can exceed 90 minutes on a cold cache.
+    timeout-minutes: 150
     permissions:
       contents: read
     steps:
@@ -97,6 +98,10 @@ jobs:
       # fails linking on the Linux runner when cross-compiling the full graph.
       - name: Build the APK
         id: build
+        timeout-minutes: 120
+        env:
+          # Fewer parallel LLVM jobs lowers peak RAM on the 7 GB runner (SIGTERM/OOM → exit 143).
+          CARGO_BUILD_JOBS: "2"
         working-directory: src
         run: |
           set -o pipefail
